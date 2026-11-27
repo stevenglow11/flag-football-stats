@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "updatedAt": null,
+  "teams": [
+    {
+      "id": "brick-elite",
+      "name": "Brick Elite",
+      "record": { "w": 0, "l": 0, "t": 0 },
+      "recordLabel": "0-0-0",
+      "pointsFor": 0,
+      "pointsAgainst": 0,
+      "games": [],
+      "leaders": []
+    }
+  ]
+}

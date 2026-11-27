@@ -1,0 +1,9 @@
+{
+  "name": "flag-football-stats",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/logic.test.mjs tests/publisher.test.mjs tests/code-gs.test.mjs",
+    "test:smoke": "node tests/smoke.mjs"
+  }
+}

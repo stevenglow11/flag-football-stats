@@ -492,6 +492,18 @@ input, select {
 .ha legend { font-weight: 800; padding: 0; margin-bottom: 6px; grid-column: 1 / -1; }
 .ha button { min-height: 48px; border-radius: 12px; font-weight: 800; }
 .edit-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
+.yard-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 8px 0 4px; }
+.yard-grid button {
+  min-height: 64px;
+  border-radius: 14px;
+  border: 2px solid var(--ink);
+  background: var(--green);
+  color: var(--green-ink);
+  font-weight: 800;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.yard-grid .yard-zero { background: var(--surface); color: var(--ink); }
 .edit-quarters { margin: 8px 0; }
 
 .toast {

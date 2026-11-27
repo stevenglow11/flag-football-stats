@@ -18,7 +18,7 @@ var DEFAULT_TEAMS = [
 ];
 
 var HEADERS = ["id", "teamId", "date", "updatedAt", "hidden", "opponent", "us", "them", "result", "json"];
-var PLAYER_HEADERS = ["team", "teamId", "gameId", "date", "opponent", "result", "us", "them", "hidden", "player", "number", "comp", "incomp", "att", "cmpPct", "passTd", "intThrown", "rush", "rushTd", "rec", "recTd", "conv1", "conv2", "safety", "flag", "sack", "int", "pd", "defTd", "td", "pts"];
+var PLAYER_HEADERS = ["team", "teamId", "gameId", "date", "opponent", "result", "us", "them", "hidden", "player", "number", "comp", "incomp", "att", "cmpPct", "passTd", "intThrown", "rush", "rushYds", "rushTd", "rec", "recYds", "recTd", "conv1", "conv2", "safety", "flag", "sack", "int", "pd", "defTd", "td", "pts"];
 var MAX_JSON = 100000;
 
 function doGet(e) {
@@ -265,8 +265,10 @@ function rebuildPlayerStats_(rows) {
         stats.passTd || "0",
         stats.intThrown || "0",
         stats.rush || "0",
+        stats.rushYds || "0",
         stats.rushTd || "0",
         stats.rec || "0",
+        stats.recYds || "0",
         stats.recTd || "0",
         stats.conv1 || "0",
         stats.conv2 || "0",
@@ -399,8 +401,10 @@ function leadersFor_(games) {
           passTd: 0,
           intThrown: 0,
           rush: 0,
+          rushYds: 0,
           rushTd: 0,
           rec: 0,
+          recYds: 0,
           recTd: 0,
           conv1: 0,
           conv2: 0,
@@ -412,7 +416,7 @@ function leadersFor_(games) {
           defTd: 0
         };
       }
-      ["comp", "incomp", "passTd", "intThrown", "rush", "rushTd", "rec", "recTd", "conv1", "conv2", "safety", "flag", "sack", "int", "pd", "defTd"].forEach(function (stat) {
+      ["comp", "incomp", "passTd", "intThrown", "rush", "rushYds", "rushTd", "rec", "recYds", "recTd", "conv1", "conv2", "safety", "flag", "sack", "int", "pd", "defTd"].forEach(function (stat) {
         map[key][stat] += stat_(player, stat);
       });
     });
@@ -428,6 +432,8 @@ function leadersFor_(games) {
   var cats = [
     { label: "Points", sort: function (p) { return p.pts; }, min: function (p) { return p.pts > 0; }, value: function (p) { return formatCount_(p.pts); } },
     { label: "Total TDs", sort: function (p) { return p.td; }, min: function (p) { return p.td > 0; }, value: function (p) { return formatCount_(p.td); } },
+    { label: "Rushing yards", sort: function (p) { return p.rushYds; }, min: function (p) { return p.rushYds !== 0; }, value: function (p) { return formatCount_(p.rushYds); } },
+    { label: "Receiving yards", sort: function (p) { return p.recYds; }, min: function (p) { return p.recYds !== 0; }, value: function (p) { return formatCount_(p.recYds); } },
     { label: "Rushing TDs", sort: function (p) { return p.rushTd; }, min: function (p) { return p.rushTd > 0; }, value: function (p) { return formatCount_(p.rushTd); } },
     { label: "Receiving TDs", sort: function (p) { return p.recTd; }, min: function (p) { return p.recTd > 0; }, value: function (p) { return formatCount_(p.recTd); } },
     { label: "Passing TDs", sort: function (p) { return p.passTd; }, min: function (p) { return p.passTd > 0; }, value: function (p) { return formatCount_(p.passTd); } },

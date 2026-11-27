@@ -20,8 +20,8 @@ function game(id, opponent, us, them) {
       { label: "2nd", us: 0, them },
     ],
     players: [
-      { name: "Keegan", number: "", stats: { passTd: "1", comp: "0", att: "0", td: "0", pts: "0", rushTd: "0", recTd: "0", defTd: "0" } },
-      { name: "Ethan", number: "4", stats: { recTd: "1", td: "1", pts: "6", passTd: "0", rushTd: "0", defTd: "0", comp: "0" } },
+      { name: "Keegan", number: "", stats: { passTd: "1", comp: "0", att: "0", td: "0", pts: "0", rushTd: "0", recTd: "0", defTd: "0", rushYds: "0", recYds: "0" } },
+      { name: "Ethan", number: "4", stats: { recTd: "1", td: "1", pts: "6", passTd: "0", rushTd: "0", defTd: "0", comp: "0", rushYds: "4", recYds: "18" } },
     ],
     totals: { td: "1", pts: "6", passTd: "1" },
   };
@@ -71,16 +71,25 @@ test("upsert, hide, leaders, and player rows keep a six-point passing play at si
   assert.equal(brick.leaders.find((board) => board.label === "Points").rows[0].value, "6");
   assert.equal(brick.leaders.find((board) => board.label === "Total TDs").rows.some((row) => row.name === "Keegan"), false);
   assert.equal(brick.leaders.find((board) => board.label === "Passing TDs").rows[0].name, "Keegan");
+  assert.equal(brick.leaders.find((board) => board.label === "Receiving yards").rows[0].name, "Ethan");
+  assert.equal(brick.leaders.find((board) => board.label === "Receiving yards").rows[0].value, "18");
+  assert.equal(brick.leaders.find((board) => board.label === "Rushing yards").rows[0].value, "4");
+  assert.equal(brick.leaders.some((board) => board.label === "Rushing yards" && board.rows[0].name === "Keegan"), false);
 
   const header = gas.playerRows()[0];
   const nameCol = header.indexOf("player");
   const passCol = header.indexOf("passTd");
   const ptsCol = header.indexOf("pts");
+  const recYdsCol = header.indexOf("recYds");
+  const rushYdsCol = header.indexOf("rushYds");
   const keegan = gas.playerRows().find((row) => row[nameCol] === "Keegan");
   const ethan = gas.playerRows().find((row) => row[nameCol] === "Ethan");
   assert.equal(keegan[passCol], "1");
   assert.equal(keegan[ptsCol], "0");
   assert.equal(ethan[ptsCol], "6");
+  assert.equal(ethan[recYdsCol], "18");
+  assert.equal(ethan[rushYdsCol], "4");
+  assert.equal(keegan[recYdsCol], "0");
 
   const again = gas.post({
     passcode: PASS,

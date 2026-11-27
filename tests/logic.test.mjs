@@ -20,10 +20,13 @@ import {
   exportPayload,
   formatClock,
   formatPct,
+  formatYards,
   gameCsv,
+  leaderboard,
   loadData,
   normalizeData,
   parseBackup,
+  playLine,
   playerName,
   renameTeam,
   resetClock,
@@ -313,6 +316,55 @@ test("backup round-trip keeps games and refuses the wrong file", () => {
   assert.match(parseBackup('{"app":"lacrosse-stats","data":{}}').error, /flag football/);
   deleteGame(parsed.data, parsed.data.games[0].id);
   assert.equal(parsed.data.games.length, 0);
+});
+
+test("catch and run yards total, undo, and survive a missing yards field", () => {
+  const data = defaultData();
+  const team = data.teams[0];
+  const { game } = createGame(data, team.id, { opponent: "Rivals", date: "2026-09-12", homeAway: "home", location: "" });
+  const ethan = player(data, "p_ethan");
+  const cal = player(data, "p_cal");
+  addEvent(game, { type: "rec", player: ethan, half: "H1", yards: 12 });
+  const score = addEvent(game, { type: "rec_td", player: ethan, half: "H1", yards: 25 });
+  addEvent(game, { type: "rush", player: cal, half: "H2", yards: -3 });
+  addEvent(game, { type: "rush_td", player: cal, half: "H2", yards: 20 });
+  let box = boxScore(game, team);
+  assert.equal(box.score.total.us, 12);
+  const receiver = box.players.find((row) => row.name === "Ethan");
+  const runner = box.players.find((row) => row.name === "Cal");
+  assert.equal(receiver.rec, 1);
+  assert.equal(receiver.recTd, 1);
+  assert.equal(receiver.recYds, 37);
+  assert.equal(receiver.ydsPerRec, 18.5);
+  assert.equal(runner.rush, 1);
+  assert.equal(runner.rushTd, 1);
+  assert.equal(runner.rushYds, 17);
+  assert.equal(formatYards(25), "+25 yds");
+  assert.equal(formatYards(-3), "-3 yds");
+  assert.equal(playLine(game.events[1], team), "Ethan Rec TD +25 yds");
+  assert.equal(playLine(game.events[2], team), "Cal Rush -3 yds");
+  updateEvent(game, team, score.id, { yards: 8 });
+  box = boxScore(game, team);
+  assert.equal(box.players.find((row) => row.name === "Ethan").recYds, 20);
+  assert.equal(undoLast(game).type, "rush_td");
+  box = boxScore(game, team);
+  assert.equal(box.score.total.us, 6);
+  assert.equal(box.players.find((row) => row.name === "Cal").rushYds, -3);
+  assert.equal(box.players.find((row) => row.name === "Cal").rushTd, 0);
+  game.events.push({ id: "e_old", type: "rush", playerId: cal.id, playerName: "Cal", playerNumber: "", half: "H2", ts: 1 });
+  const loaded = normalizeData(JSON.parse(JSON.stringify(data)));
+  const old = loaded.games[0].events.find((event) => event.id === "e_old");
+  assert.equal(old.yards, 0);
+  const next = boxScore(loaded.games[0], loaded.teams[0]);
+  assert.equal(next.score.total.us, 6);
+  assert.equal(next.players.find((row) => row.name === "Cal").rushYds, -3);
+  assert.equal(addEvent(game, { type: "rec", player: ethan, half: "H1", yards: 150 }), null);
+  const season = seasonForTeam(loaded, loaded.teams[0]);
+  const boards = leaderboard(season.players);
+  assert.equal(boards.find((board) => board.label === "Receiving yards").rows[0].value, "20");
+  assert.equal(boards.find((board) => board.label === "Rushing yards").rows[0].name, "Cal");
+  assert.match(seasonCsv(loaded.teams[0], season), /RuYd/);
+  assert.match(seasonCsv(loaded.teams[0], season), /RcYd/);
 });
 
 test("the sideline clock pauses without jumping ahead of the saved elapsed time", () => {

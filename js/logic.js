@@ -57,7 +57,29 @@ const EVENT_SET = new Set(EVENT_TYPES);
 
 export const COUNTING_KEYS = Object.values(EVENT_FIELD);
 
+export const YARD_TYPES = new Set(["rush", "rush_td", "rec", "rec_td"]);
+
+export const YARD_PRESETS = [5, 10, 15, 20, 30];
+
+const YARD_FIELD = {
+  rush: "rushYds",
+  rush_td: "rushYds",
+  rec: "recYds",
+  rec_td: "recYds",
+};
+
+const YARD_KEYS = ["rushYds", "recYds"];
+
+const SHORT_STAT = {
+  rush: "Rush",
+  rush_td: "Rush TD",
+  rec: "Rec",
+  rec_td: "Rec TD",
+};
+
 export const RATE_KEYS = new Set(["cmpPct"]);
+
+export const DECIMAL_KEYS = new Set(["ydsPerRush", "ydsPerRec"]);
 
 export const TABLE_COLUMNS = [
   { key: "comp", label: "CMP", title: "Completions" },
@@ -66,9 +88,13 @@ export const TABLE_COLUMNS = [
   { key: "cmpPct", label: "CMP%", title: "Completion percentage: completions divided by attempts" },
   { key: "passTd", label: "PTD", title: "Passing touchdowns. Credits the quarterback and does not add points." },
   { key: "intThrown", label: "INT-", title: "Interceptions thrown" },
-  { key: "rush", label: "RSH", title: "Rushes" },
+  { key: "rush", label: "RSH", title: "Rushes, not including rushing touchdowns" },
+  { key: "rushYds", label: "RuYd", title: "Rushing yards, including yards on rushing touchdowns" },
+  { key: "ydsPerRush", label: "Y/C", title: "Yards per carry: rushing yards divided by rushes plus rushing touchdowns" },
   { key: "rushTd", label: "RTD", title: "Rushing touchdowns (+6)" },
-  { key: "rec", label: "REC", title: "Receptions" },
+  { key: "rec", label: "REC", title: "Receptions, not including receiving touchdowns" },
+  { key: "recYds", label: "RcYd", title: "Receiving yards, including yards on receiving touchdowns" },
+  { key: "ydsPerRec", label: "Y/R", title: "Yards per catch: receiving yards divided by receptions plus receiving touchdowns" },
   { key: "recTd", label: "RCTD", title: "Receiving touchdowns (+6)" },
   { key: "conv1", label: "1PT", title: "1-point conversions (+1)" },
   { key: "conv2", label: "2PT", title: "2-point conversions (+2)" },
@@ -110,6 +136,24 @@ const CLOCK_CAP_MS = 8 * 60 * 60 * 1000;
 
 export function isOpponentEvent(type) {
   return Object.prototype.hasOwnProperty.call(THEIR_SCORE, type);
+}
+
+export function needsYards(type) {
+  return YARD_TYPES.has(type);
+}
+
+export function sanitizeYards(value) {
+  if (value == null || value === "") return 0;
+  const n = Number(String(value).trim());
+  if (!Number.isFinite(n)) return null;
+  const rounded = Math.round(n);
+  if (rounded < -99 || rounded > 99) return null;
+  return rounded;
+}
+
+export function formatYards(yards) {
+  const n = Number.isFinite(Number(yards)) ? Math.round(Number(yards)) : 0;
+  return `${n > 0 ? "+" : n < 0 ? "" : "+"}${n} yds`;
 }
 
 export function uid(prefix) {
@@ -229,6 +273,8 @@ export function emptyLine() {
     rushTd: 0,
     rec: 0,
     recTd: 0,
+    rushYds: 0,
+    recYds: 0,
     conv1: 0,
     conv2: 0,
     safety: 0,
@@ -244,13 +290,20 @@ export function applyEvent(line, event) {
   const field = EVENT_FIELD[event?.type];
   if (!field) return;
   line[field] += 1;
+  const yardsKey = YARD_FIELD[event.type];
+  if (yardsKey) line[yardsKey] += Number(event.yards) || 0;
 }
 
 export function derive(line) {
   const base = emptyLine();
   for (const key of COUNTING_KEYS) base[key] = Number(line?.[key]) || 0;
+  for (const key of YARD_KEYS) base[key] = Number(line?.[key]) || 0;
   base.att = base.comp + base.incomp;
   base.cmpPct = base.att > 0 ? base.comp / base.att : null;
+  const carries = base.rush + base.rushTd;
+  const catches = base.rec + base.recTd;
+  base.ydsPerRush = carries > 0 ? base.rushYds / carries : null;
+  base.ydsPerRec = catches > 0 ? base.recYds / catches : null;
   base.td = base.rushTd + base.recTd + base.defTd;
   base.pts = 6 * base.td + base.conv1 + 2 * base.conv2 + 2 * base.safety;
   return base;
@@ -260,6 +313,7 @@ export function sumLines(lines) {
   const total = emptyLine();
   for (const line of lines) {
     for (const key of COUNTING_KEYS) total[key] += Number(line[key]) || 0;
+    for (const key of YARD_KEYS) total[key] += Number(line[key]) || 0;
   }
   return derive(total);
 }
@@ -285,6 +339,7 @@ export function formatAvg(value) {
 
 export function formatStat(key, line, mode, gp) {
   if (RATE_KEYS.has(key)) return formatPct(line[key]);
+  if (DECIMAL_KEYS.has(key)) return formatAvg(line[key]);
   const value = Number(line[key]) || 0;
   if (mode === "avg") {
     if (!gp) return "—";
@@ -343,7 +398,14 @@ export function resetClock(game) {
 }
 
 export function eventLabel(event) {
+  if (needsYards(event?.type)) return `${SHORT_STAT[event.type]} ${formatYards(event.yards)}`;
   return STAT_BUTTONS.find((button) => button.type === event?.type)?.aria || "Event";
+}
+
+export function playLine(event, team) {
+  const who = eventWho(event, team);
+  if (needsYards(event?.type)) return `${who} ${SHORT_STAT[event.type]} ${formatYards(event.yards)}`;
+  return `${who} ${eventLabel(event)}`;
 }
 
 export function eventWho(event, team) {
@@ -462,6 +524,8 @@ export function leaderboard(players) {
   const cats = [
     { key: "pts", label: "Points", min: (p) => p.pts > 0, format: (p) => formatCount(p.pts) },
     { key: "td", label: "Total TDs", min: (p) => p.td > 0, format: (p) => formatCount(p.td) },
+    { key: "rushYds", label: "Rushing yards", min: (p) => p.rushYds !== 0, format: (p) => formatCount(p.rushYds) },
+    { key: "recYds", label: "Receiving yards", min: (p) => p.recYds !== 0, format: (p) => formatCount(p.recYds) },
     { key: "rushTd", label: "Rushing TDs", min: (p) => p.rushTd > 0, format: (p) => formatCount(p.rushTd) },
     { key: "recTd", label: "Receiving TDs", min: (p) => p.recTd > 0, format: (p) => formatCount(p.recTd) },
     { key: "passTd", label: "Passing TDs", min: (p) => p.passTd > 0, format: (p) => formatCount(p.passTd) },
@@ -630,10 +694,12 @@ export function deleteGame(data, gameId) {
   if (data.boxGameId === gameId) data.boxGameId = null;
 }
 
-export function addEvent(game, { type, player, half }) {
+export function addEvent(game, { type, player, half, yards }) {
   if (!EVENT_SET.has(type)) return null;
   const opponent = isOpponentEvent(type);
   if (!opponent && !player?.id) return null;
+  const cleanYards = needsYards(type) ? sanitizeYards(yards) : null;
+  if (needsYards(type) && cleanYards == null) return null;
   const event = {
     id: uid("e"),
     type,
@@ -641,6 +707,7 @@ export function addEvent(game, { type, player, half }) {
     playerName: opponent ? "" : playerName(player),
     playerNumber: opponent ? "" : normNumber(player.number),
     half: HALF_IDS.includes(half) ? half : (HALF_IDS.includes(game.half) ? game.half : "H1"),
+    yards: cleanYards,
     ts: Date.now(),
   };
   game.events.push(event);
@@ -661,12 +728,22 @@ export function deleteEvent(game, eventId) {
 export function updateEvent(game, team, eventId, patch) {
   const event = game.events.find((item) => item.id === eventId);
   if (!event) return { error: "That event is gone." };
-  if (patch.type && EVENT_SET.has(patch.type)) event.type = patch.type;
-  if (patch.half && HALF_IDS.includes(patch.half)) event.half = patch.half;
+  const nextType = patch.type && EVENT_SET.has(patch.type) ? patch.type : event.type;
+  const nextHalf = patch.half && HALF_IDS.includes(patch.half) ? patch.half : event.half;
+  let nextYards = null;
+  if (needsYards(nextType)) {
+    const raw = patch.yards != null ? patch.yards : event.yards;
+    nextYards = sanitizeYards(raw);
+    if (nextYards == null) return { error: "Use a whole number of yards from -99 to 99." };
+  }
+  event.type = nextType;
+  event.half = nextHalf;
+  event.yards = nextYards;
   if (isOpponentEvent(event.type)) {
     event.playerId = null;
     event.playerName = "";
     event.playerNumber = "";
+    event.yards = null;
     return { event };
   }
   const player = team.players.find((item) => item.id === patch.playerId) || team.players.find((item) => item.id === event.playerId);
@@ -810,6 +887,7 @@ function normalizeEvent(event) {
   const opponent = isOpponentEvent(type);
   const playerId = opponent ? null : clip(event.playerId, 80) || null;
   if (!opponent && !playerId) return null;
+  const yards = needsYards(type) ? (sanitizeYards(event.yards) ?? 0) : null;
   return {
     id,
     type,
@@ -817,6 +895,7 @@ function normalizeEvent(event) {
     playerName: opponent ? "" : clip(event.playerName, 80),
     playerNumber: opponent ? "" : normNumber(event.playerNumber),
     half,
+    yards,
     ts: Number.isFinite(Number(event.ts)) ? Number(event.ts) : Date.now(),
   };
 }
@@ -949,6 +1028,9 @@ function statCells(line, mode, gp) {
     if (RATE_KEYS.has(column.key)) {
       const ratio = line[column.key];
       return ratio == null ? "" : String(Math.round(ratio * 1000) / 10);
+    }
+    if (DECIMAL_KEYS.has(column.key)) {
+      return line[column.key] == null ? "" : formatAvg(line[column.key]);
     }
     const value = Number(line[column.key]) || 0;
     if (mode === "avg") {

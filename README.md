@@ -57,6 +57,8 @@ These add to the Brick Elite score:
 
 **Pass TD credits the quarterback and does not add points.** Tap Pass TD for the QB and Rec TD (or Rush TD) for the player who scored. The team gets 6, not 12.
 
+Rush, Rush TD, Rec, and Rec TD then ask for yards. Tap +5, +10, +15, +20, +30, or 0, or type a number such as 12 or -3. The play-by-play line shows it, for example `Keegan Rec +12 yds`. Undo removes the yards with the play. Games saved before yards existed count as 0.
+
 Opponent buttons add only to their score: Opp TD **6**, Opp 1 **1**, Opp 2 **2**, Opp Safety **2**.
 
 Computed stats:

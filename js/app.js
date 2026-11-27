@@ -32,6 +32,8 @@ import {
   halfName,
   halfShort,
   leaderboard,
+  needsYards,
+  playLine,
   loadData,
   normNumber,
   parseBackup,
@@ -43,6 +45,7 @@ import {
   resetClock,
   saveData,
   seasonCsv,
+  sanitizeYards,
   seasonForTeam,
   slug,
   sortPlayers,
@@ -50,6 +53,7 @@ import {
   toggleClock,
   undoLast,
   updateEvent,
+  YARD_PRESETS,
   updateGameMeta,
   updatePlayer,
   versus,
@@ -234,6 +238,8 @@ function syncEditFields() {
   if (!ui.edit) return;
   const playerSelect = document.querySelector("#edit-player");
   if (playerSelect) ui.edit.playerId = playerSelect.value;
+  const yards = document.querySelector("#edit-yards");
+  if (yards) ui.edit.yards = yards.value;
 }
 
 function duplicateOthers(team, selfId, number) {
@@ -285,7 +291,9 @@ function render() {
   document.body.classList.toggle("sheet-open", Boolean(ui.sheet));
   if (focusSheet) {
     focusSheet = false;
-    const field = app.querySelector(".sheet input, .sheet select, .sheet");
+    const field = ui.sheet?.type === "yards"
+      ? app.querySelector(".sheet")
+      : app.querySelector(".sheet input, .sheet select, .sheet");
     field?.focus();
   }
   if (flashSide) {
@@ -521,10 +529,14 @@ function renderEvent(event, team) {
   const label = eventLabel(event);
   const who = eventWho(event, team);
   const time = formatTime(event.ts);
+  const line = needsYards(event.type) ? playLine(event, team) : `${halfShort(event.half)} · ${label}`;
+  const meta = needsYards(event.type)
+    ? `${halfShort(event.half)}${time ? ` · ${time}` : ""}`
+    : `${who}${time ? ` · ${time}` : ""}`;
   return `<li class="event">
     <div class="event-main">
-      <span class="event-k">${esc(halfShort(event.half))} · ${esc(label)}</span>
-      <span class="event-who">${esc(who)}${time ? ` · ${esc(time)}` : ""}</span>
+      <span class="event-k">${esc(line)}</span>
+      <span class="event-who">${esc(meta)}</span>
     </div>
     <div class="event-actions">
       <button type="button" data-action="edit-event" data-id="${esc(event.id)}" aria-label="Edit ${esc(label)} by ${esc(who)}">Edit</button>
@@ -666,7 +678,7 @@ function renderBox() {
     </div>
     ${renderStatTable(box.players, box.totals, { mode: "totals", teamGames: 1, showGp: false, testid: "box-table" })}
     <button type="button" class="secondary block" data-action="export-game" data-id="${esc(game.id)}">Export this game</button>
-    <p class="legend">Rush TD, Rec TD, and Def TD add 6. Pass TD credits the quarterback and does not add another 6. 1-pt adds 1. 2-pt and safety add 2. Opponent buttons add only to their score.</p>
+    <p class="legend">Rush TD, Rec TD, and Def TD add 6. Pass TD credits the quarterback and does not add another 6. Yards on a rush or catch do not change the score. RuYd and RcYd include touchdown plays. Y/C is rushing yards per carry. Y/R is receiving yards per catch.</p>
   </section>`;
 }
 
@@ -728,6 +740,12 @@ function renderSheet() {
     body = events.length
       ? `<ul class="feed-list">${events.map((event) => renderEvent(event, team)).join("")}</ul>`
       : `<p class="empty-copy">No events yet.</p>`;
+  } else if (sheet.type === "yards") {
+    const team = currentTeam(data);
+    const player = team.players.find((item) => item.id === sheet.playerId);
+    const stat = STAT_BUTTONS.find((button) => button.type === sheet.stat);
+    title = `Yards · ${player ? playerName(player) : "Player"}`;
+    body = renderYardsForm(stat);
   } else if (sheet.type === "edit") {
     title = "Edit event";
     body = renderEditForm();
@@ -794,6 +812,23 @@ function renderTeamForm() {
   </form>`;
 }
 
+function renderYardsForm(stat) {
+  return `<p class="lede">${esc(stat?.name || "Play")}. Tap a gain, 0 to skip, or type a number.</p>
+    <div class="yard-grid" role="group" aria-label="Yard presets">
+      ${YARD_PRESETS.map((yards) => `<button type="button" data-action="yard-preset" data-yards="${yards}" aria-label="+${yards} yards">+${yards}</button>`).join("")}
+      <button type="button" class="yard-zero" data-action="yard-preset" data-yards="0" aria-label="0 yards">0</button>
+    </div>
+    <form data-draft-form="yards" novalidate>
+      <label class="field"><span>Other yards</span>
+        <input id="custom-yards" name="yards" inputmode="text" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="18 or -3">
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="secondary" data-action="close-sheet">Cancel</button>
+        <button type="submit" class="primary">Add yards</button>
+      </div>
+    </form>`;
+}
+
 function renderEditForm() {
   const edit = ui.edit;
   const team = currentTeam(data);
@@ -806,6 +841,7 @@ function renderEditForm() {
       </button>`).join("")}
     </div>
     ${opponent ? "" : `<label class="field"><span>Player</span><select id="edit-player">${options}</select></label>`}
+    ${needsYards(edit.type) ? `<label class="field"><span>Yards</span><input id="edit-yards" name="yards" inputmode="text" enterkeyhint="done" autocomplete="off" value="${esc(edit.yards ?? "0")}" placeholder="12 or -3"></label>` : ""}
     <div class="halves edit-quarters" role="group" aria-label="Half">
       ${HALVES.map((half) => `<button type="button" data-action="edit-half" data-half="${half.id}" aria-label="${esc(half.label)}" aria-pressed="${edit.half === half.id ? "true" : "false"}" class="${edit.half === half.id ? "is-on" : ""}">${esc(half.short)}</button>`).join("")}
     </div>
@@ -1075,21 +1111,53 @@ function pointsSide(type) {
   return "";
 }
 
-function commitStat(type, player) {
+function openYards(type, player) {
+  ui.pendingStat = null;
+  if (player) ui.selectedPlayerId = player.id;
+  ui.draft = { yards: "" };
+  ui.sheet = { type: "yards", stat: type, playerId: player?.id || "" };
+  focusSheet = true;
+  render();
+}
+
+function commitStat(type, player, yards) {
   const game = currentGame(data);
   const spec = STAT_BUTTONS.find((button) => button.type === type);
   if (!game || !spec) return;
+  if (needsYards(type) && yards == null) {
+    openYards(type, player);
+    return;
+  }
   const event = addEvent(game, {
     type,
     player: spec.opponent ? null : player,
     half: game.half,
+    yards,
   });
-  if (!event) return;
+  if (!event) {
+    toast("Use a whole number of yards from -99 to 99.");
+    return;
+  }
   ui.pendingStat = null;
+  ui.sheet = null;
+  ui.draft = null;
   if (!spec.opponent && player) ui.selectedPlayerId = player.id;
   flashSide = pointsSide(type);
   persist();
   render();
+}
+
+function saveYards() {
+  const sheet = ui.sheet;
+  if (sheet?.type !== "yards") return;
+  syncDraftFromDom();
+  const yards = sanitizeYards(ui.draft?.yards);
+  if (yards == null) {
+    toast("Use a whole number of yards from -99 to 99.");
+    return;
+  }
+  const player = currentTeam(data).players.find((item) => item.id === sheet.playerId);
+  commitStat(sheet.stat, player, yards);
 }
 
 function onStat(type) {
@@ -1155,7 +1223,13 @@ function openEdit(id) {
   const game = currentGame(data);
   const event = game?.events.find((item) => item.id === id);
   if (!event) return;
-  ui.edit = { eventId: event.id, type: event.type, playerId: event.playerId || "", half: event.half };
+  ui.edit = {
+    eventId: event.id,
+    type: event.type,
+    playerId: event.playerId || "",
+    half: event.half,
+    yards: event.yards == null ? "" : String(event.yards),
+  };
   ui.confirmBack = null;
   ui.sheet = { type: "edit" };
   focusSheet = true;
@@ -1545,7 +1619,15 @@ function onClick(event) {
       case "show-events": ui.sheet = { type: "events" }; focusSheet = true; render(); break;
       case "edit-event": openEdit(id); break;
       case "delete-event": askDeleteEvent(id); break;
-      case "edit-type": syncEditFields(); ui.edit.type = el.dataset.stat; render(); break;
+      case "edit-type": syncEditFields(); ui.edit.type = el.dataset.stat; if (!needsYards(ui.edit.type)) ui.edit.yards = ""; else if (ui.edit.yards === "") ui.edit.yards = "0"; render(); break;
+      case "yard-preset": {
+        const sheet = ui.sheet;
+        if (sheet?.type !== "yards") break;
+        const player = currentTeam(data).players.find((item) => item.id === sheet.playerId);
+        const yards = sanitizeYards(el.dataset.yards);
+        commitStat(sheet.stat, player, yards);
+        break;
+      }
       case "edit-half": syncEditFields(); ui.edit.half = el.dataset.half; render(); break;
       case "stats-tab": ui.statsTab = el.dataset.tab; render(); break;
       case "avg-mode": ui.avgMode = el.dataset.mode === "avg" ? "avg" : "totals"; render(); break;
@@ -1594,6 +1676,7 @@ function onSubmit(event) {
     else if (form.dataset.draftForm === "player") savePlayer();
     else if (form.dataset.draftForm === "team") saveTeam();
     else if (form.dataset.draftForm === "passcode") savePasscode();
+    else if (form.dataset.draftForm === "yards") saveYards();
     else if (form.hasAttribute("data-edit-form")) saveEdit();
   } catch {
     toast("Couldn't save on this phone. Download a backup.");

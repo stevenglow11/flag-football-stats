@@ -43,7 +43,10 @@ function statMap(line) {
 }
 
 function hasCountingStat(line) {
-  return COUNTING_KEYS.some((key) => Number(line[key]) > 0);
+  return COUNTING_KEYS.some((key) => Number(line[key]) > 0)
+    || Number(line?.rushYds)
+    || Number(line?.recYds)
+    || Number(line?.passYds);
 }
 
 function resultLetter(us, them) {

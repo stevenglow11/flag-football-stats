@@ -172,8 +172,19 @@ async function main() {
     await page.getByRole("button", { name: "Undo last event", exact: true }).click();
     assert.equal((await page.getByTestId("score-us").innerText()).trim(), "6");
     assert.equal((await page.getByTestId("feed").innerText()).includes("Rush TD"), false);
+    await stat("2 point conversion").click();
+    await page.getByRole("dialog", { name: "2-Pt · Cal" }).waitFor();
+    assert.equal(await page.locator("[data-testid=score-us]").evaluate((node) => node.textContent.trim()), "6");
+    await page.getByRole("button", { name: "Passer Ethan", exact: true }).click();
+    assert.equal((await page.getByTestId("score-us").innerText()).trim(), "8");
+    assert.match(await page.getByTestId("feed").innerText(), /Cal 2-Pt Conv \(\+10 rec yds\) from Ethan \(\+10 pass yds\)/);
+    await page.getByRole("button", { name: "Undo last event", exact: true }).click();
+    assert.equal((await page.getByTestId("score-us").innerText()).trim(), "6");
+    assert.equal((await page.getByTestId("feed").innerText()).includes("2-Pt Conv"), false);
     await stat("1 point conversion").click();
+    await page.getByRole("button", { name: "Run / No passer", exact: true }).click();
     assert.equal((await page.getByTestId("score-us").innerText()).trim(), "7");
+    assert.match(await page.getByTestId("feed").innerText(), /Cal 1-Pt Conv run \(\+5 rush yds\)/);
     await page.getByRole("button", { name: "Start clock", exact: true }).click();
     await page.getByRole("button", { name: "Pause clock", exact: true }).waitFor();
     const passTd = await stat("Passing touchdown").boundingBox();
@@ -196,14 +207,16 @@ async function main() {
     assert.equal(await cell("Ethan", "ydsPerRec"), "12");
     assert.equal(await cell("Ethan", "pts"), "6");
     assert.equal(await cell("Cal", "rush"), "1");
-    assert.equal(await cell("Cal", "rushYds"), "10");
-    assert.equal(await cell("Cal", "ydsPerRush"), "10");
+    assert.equal(await cell("Cal", "rushYds"), "15");
+    assert.equal(await cell("Cal", "ydsPerRush"), "15");
+    assert.equal(await cell("Cal", "passYds"), "0");
+    assert.equal(await cell("Ethan", "passYds"), "0");
     assert.equal(await cell("Cal", "rushTd"), "0");
     assert.equal(await cell("Cal", "conv1"), "1");
     assert.equal(await cell("Cal", "pts"), "1");
     assert.equal(await cell("Totals", "pts"), "7");
     assert.equal(await cell("Totals", "recYds"), "12");
-    assert.equal(await cell("Totals", "rushYds"), "10");
+    assert.equal(await cell("Totals", "rushYds"), "15");
     await shot(page, "box_score_screen.png");
 
     await page.getByRole("button", { name: "Stats", exact: true }).click();
@@ -216,7 +229,7 @@ async function main() {
     assert.match(await receiving.innerText(), /Ethan/);
     assert.match(await receiving.innerText(), /12/);
     assert.match(await rushing.innerText(), /Cal/);
-    assert.match(await rushing.innerText(), /10/);
+    assert.match(await rushing.innerText(), /15/);
     await shot(page, "season_stats_screen.png");
 
     await page.getByRole("button", { name: "Games", exact: true }).click();
@@ -233,7 +246,8 @@ async function main() {
     assert.equal(brick.games[0].players.find((item) => item.name === "Keegan").stats.pts, "0");
     assert.equal(brick.games[0].players.find((item) => item.name === "Ethan").stats.pts, "6");
     assert.equal(brick.games[0].players.find((item) => item.name === "Ethan").stats.recYds, "12");
-    assert.equal(brick.games[0].players.find((item) => item.name === "Cal").stats.rushYds, "10");
+    assert.equal(brick.games[0].players.find((item) => item.name === "Cal").stats.rushYds, "15");
+    assert.equal(brick.games[0].players.find((item) => item.name === "Ethan").stats.passYds, "0");
 
     await page.goto(`${appUrl}results.html`);
     await page.getByRole("button", { name: /Rivals/ }).waitFor();

@@ -31,6 +31,7 @@ import {
   gamesForTeam,
   halfName,
   halfShort,
+  isConversion,
   leaderboard,
   needsYards,
   playLine,
@@ -240,6 +241,8 @@ function syncEditFields() {
   if (playerSelect) ui.edit.playerId = playerSelect.value;
   const yards = document.querySelector("#edit-yards");
   if (yards) ui.edit.yards = yards.value;
+  const passer = document.querySelector("#edit-passer");
+  if (passer) ui.edit.passerId = passer.value;
 }
 
 function duplicateOthers(team, selfId, number) {
@@ -291,7 +294,7 @@ function render() {
   document.body.classList.toggle("sheet-open", Boolean(ui.sheet));
   if (focusSheet) {
     focusSheet = false;
-    const field = ui.sheet?.type === "yards"
+    const field = ui.sheet?.type === "yards" || ui.sheet?.type === "conversion"
       ? app.querySelector(".sheet")
       : app.querySelector(".sheet input, .sheet select, .sheet");
     field?.focus();
@@ -529,8 +532,9 @@ function renderEvent(event, team) {
   const label = eventLabel(event);
   const who = eventWho(event, team);
   const time = formatTime(event.ts);
-  const line = needsYards(event.type) ? playLine(event, team) : `${halfShort(event.half)} · ${label}`;
-  const meta = needsYards(event.type)
+  const detailed = needsYards(event.type) || (isConversion(event.type) && event.convMode);
+  const line = detailed ? playLine(event, team) : `${halfShort(event.half)} · ${label}`;
+  const meta = detailed
     ? `${halfShort(event.half)}${time ? ` · ${time}` : ""}`
     : `${who}${time ? ` · ${time}` : ""}`;
   return `<li class="event">
@@ -746,6 +750,12 @@ function renderSheet() {
     const stat = STAT_BUTTONS.find((button) => button.type === sheet.stat);
     title = `Yards · ${player ? playerName(player) : "Player"}`;
     body = renderYardsForm(stat);
+  } else if (sheet.type === "conversion") {
+    const team = currentTeam(data);
+    const player = team.players.find((item) => item.id === sheet.playerId);
+    const stat = STAT_BUTTONS.find((button) => button.type === sheet.stat);
+    title = `${stat?.name || "Conv"} · ${player ? playerName(player) : "Player"}`;
+    body = renderConversionForm(team, player, stat);
   } else if (sheet.type === "edit") {
     title = "Edit event";
     body = renderEditForm();
@@ -812,6 +822,19 @@ function renderTeamForm() {
   </form>`;
 }
 
+function renderConversionForm(team, scorer, stat) {
+  const yards = stat?.type === "conv2" ? 10 : 5;
+  const choices = sortPlayers(team.players).filter((player) => player.id !== scorer?.id);
+  return `<p class="lede">${yards} yards for ${esc(scorer ? playerName(scorer) : "the scorer")} and for the passer. The score adds ${stat?.type === "conv2" ? "2" : "1"}.</p>
+    <div class="conv-list">
+      ${choices.map((player) => `<button type="button" data-action="conv-passer" data-id="${esc(player.id)}" aria-label="Passer ${esc(playerName(player))}">
+        <b>${esc(normNumber(player.number) || "—")}</b><span>${esc(playerName(player))}</span>
+      </button>`).join("")}
+    </div>
+    <button type="button" class="secondary block conv-run" data-action="conv-run">Run / No passer</button>
+    <button type="button" class="text-danger" data-action="close-sheet">Cancel</button>`;
+}
+
 function renderYardsForm(stat) {
   return `<p class="lede">${esc(stat?.name || "Play")}. Tap a gain, 0 to skip, or type a number.</p>
     <div class="yard-grid" role="group" aria-label="Yard presets">
@@ -829,6 +852,21 @@ function renderYardsForm(stat) {
     </form>`;
 }
 
+function renderEditConversion(edit) {
+  const team = currentTeam(data);
+  const run = edit.convMode === "run";
+  const pass = edit.convMode === "pass";
+  const options = sortPlayers(team.players)
+    .filter((player) => player.id !== edit.playerId)
+    .map((player) => `<option value="${esc(player.id)}"${player.id === edit.passerId ? " selected" : ""}>${esc(playerAria(player))}</option>`)
+    .join("");
+  return `<div class="halves edit-quarters" role="group" aria-label="Conversion">
+      <button type="button" data-action="edit-conv" data-mode="run" class="${run ? "is-on" : ""}" aria-pressed="${run ? "true" : "false"}">Run</button>
+      <button type="button" data-action="edit-conv" data-mode="pass" class="${pass ? "is-on" : ""}" aria-pressed="${pass ? "true" : "false"}">Pass</button>
+    </div>
+    ${pass ? `<label class="field"><span>Passer</span><select id="edit-passer">${options}</select></label>` : `<p class="fine">${edit.convMode ? "5 yards on a 1-pt, 10 on a 2-pt." : "Leave both off to keep an older conversion as points only."}</p>`}`;
+}
+
 function renderEditForm() {
   const edit = ui.edit;
   const team = currentTeam(data);
@@ -841,7 +879,8 @@ function renderEditForm() {
       </button>`).join("")}
     </div>
     ${opponent ? "" : `<label class="field"><span>Player</span><select id="edit-player">${options}</select></label>`}
-    ${needsYards(edit.type) ? `<label class="field"><span>Yards</span><input id="edit-yards" name="yards" inputmode="text" enterkeyhint="done" autocomplete="off" value="${esc(edit.yards ?? "0")}" placeholder="12 or -3"></label>` : ""}
+    ${needsYards(edit.type) || edit.type === "comp" || edit.type === "pass_td" ? `<label class="field"><span>${edit.type === "comp" || edit.type === "pass_td" ? "Passing yards" : "Yards"} <em>${edit.type === "comp" || edit.type === "pass_td" ? "optional" : ""}</em></span><input id="edit-yards" name="yards" inputmode="text" enterkeyhint="done" autocomplete="off" value="${esc(edit.yards ?? "")}" placeholder="12 or -3"></label>` : ""}
+    ${isConversion(edit.type) ? renderEditConversion(edit) : ""}
     <div class="halves edit-quarters" role="group" aria-label="Half">
       ${HALVES.map((half) => `<button type="button" data-action="edit-half" data-half="${half.id}" aria-label="${esc(half.label)}" aria-pressed="${edit.half === half.id ? "true" : "false"}" class="${edit.half === half.id ? "is-on" : ""}">${esc(half.short)}</button>`).join("")}
     </div>
@@ -1120,7 +1159,15 @@ function openYards(type, player) {
   render();
 }
 
-function commitStat(type, player, yards) {
+function openConversion(type, player) {
+  ui.pendingStat = null;
+  if (player) ui.selectedPlayerId = player.id;
+  ui.sheet = { type: "conversion", stat: type, playerId: player?.id || "" };
+  focusSheet = true;
+  render();
+}
+
+function commitStat(type, player, yards, conv) {
   const game = currentGame(data);
   const spec = STAT_BUTTONS.find((button) => button.type === type);
   if (!game || !spec) return;
@@ -1128,11 +1175,17 @@ function commitStat(type, player, yards) {
     openYards(type, player);
     return;
   }
+  if (isConversion(type) && !conv?.convMode) {
+    openConversion(type, player);
+    return;
+  }
   const event = addEvent(game, {
     type,
     player: spec.opponent ? null : player,
     half: game.half,
     yards,
+    convMode: conv?.convMode,
+    passer: conv?.passer,
   });
   if (!event) {
     toast("Use a whole number of yards from -99 to 99.");
@@ -1229,6 +1282,8 @@ function openEdit(id) {
     playerId: event.playerId || "",
     half: event.half,
     yards: event.yards == null ? "" : String(event.yards),
+    convMode: event.convMode || "",
+    passerId: event.passerId || "",
   };
   ui.confirmBack = null;
   ui.sheet = { type: "edit" };
@@ -1619,7 +1674,18 @@ function onClick(event) {
       case "show-events": ui.sheet = { type: "events" }; focusSheet = true; render(); break;
       case "edit-event": openEdit(id); break;
       case "delete-event": askDeleteEvent(id); break;
-      case "edit-type": syncEditFields(); ui.edit.type = el.dataset.stat; if (!needsYards(ui.edit.type)) ui.edit.yards = ""; else if (ui.edit.yards === "") ui.edit.yards = "0"; render(); break;
+      case "edit-type": syncEditFields(); ui.edit.type = el.dataset.stat; if (!needsYards(ui.edit.type) && ui.edit.type !== "comp" && ui.edit.type !== "pass_td") ui.edit.yards = ""; if (!isConversion(ui.edit.type)) { ui.edit.convMode = ""; ui.edit.passerId = ""; } render(); break;
+      case "edit-conv": syncEditFields(); ui.edit.convMode = ui.edit.convMode === el.dataset.mode ? "" : el.dataset.mode; render(); break;
+      case "conv-run":
+      case "conv-passer": {
+        const sheet = ui.sheet;
+        if (sheet?.type !== "conversion") break;
+        const team = currentTeam(data);
+        const scorer = team.players.find((item) => item.id === sheet.playerId);
+        const passer = el.dataset.action === "conv-passer" ? team.players.find((item) => item.id === el.dataset.id) : null;
+        commitStat(sheet.stat, scorer, null, { convMode: passer ? "pass" : "run", passer });
+        break;
+      }
       case "yard-preset": {
         const sheet = ui.sheet;
         if (sheet?.type !== "yards") break;

@@ -11,6 +11,7 @@ const COLUMNS = [
   ["att", "ATT", "Pass attempts"],
   ["cmpPct", "CMP%", "Completion percentage"],
   ["passTd", "PTD", "Passing touchdowns (no points)"],
+  ["passYds", "PsYd", "Passing yards"],
   ["intThrown", "INT-", "Interceptions thrown"],
   ["rush", "RSH", "Rushes"],
   ["rushYds", "RuYd", "Rushing yards"],

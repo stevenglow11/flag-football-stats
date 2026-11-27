@@ -504,6 +504,21 @@ input, select {
   font-variant-numeric: tabular-nums;
 }
 .yard-grid .yard-zero { background: var(--surface); color: var(--ink); }
+.conv-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 42dvh; overflow: auto; }
+.conv-list button {
+  min-height: 56px;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  font-weight: 800;
+}
+.conv-list b { font-size: 18px; }
+.conv-run { margin-top: 8px; }
 .edit-quarters { margin: 8px 0; }
 
 .toast {

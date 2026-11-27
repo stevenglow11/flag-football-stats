@@ -68,7 +68,7 @@ const YARD_FIELD = {
   rec_td: "recYds",
 };
 
-const YARD_KEYS = ["rushYds", "recYds"];
+const YARD_KEYS = ["rushYds", "recYds", "passYds"];
 
 const SHORT_STAT = {
   rush: "Rush",
@@ -87,6 +87,7 @@ export const TABLE_COLUMNS = [
   { key: "att", label: "ATT", title: "Pass attempts (completions + incompletions)" },
   { key: "cmpPct", label: "CMP%", title: "Completion percentage: completions divided by attempts" },
   { key: "passTd", label: "PTD", title: "Passing touchdowns. Credits the quarterback and does not add points." },
+  { key: "passYds", label: "PsYd", title: "Passing yards. A 1-point conversion adds 5 and a 2-point conversion adds 10 for the passer. Completions stay one tap and do not ask for yards." },
   { key: "intThrown", label: "INT-", title: "Interceptions thrown" },
   { key: "rush", label: "RSH", title: "Rushes, not including rushing touchdowns" },
   { key: "rushYds", label: "RuYd", title: "Rushing yards, including yards on rushing touchdowns" },
@@ -140,6 +141,16 @@ export function isOpponentEvent(type) {
 
 export function needsYards(type) {
   return YARD_TYPES.has(type);
+}
+
+export function isConversion(type) {
+  return type === "conv1" || type === "conv2";
+}
+
+export function conversionYards(type) {
+  if (type === "conv1") return 5;
+  if (type === "conv2") return 10;
+  return 0;
 }
 
 export function sanitizeYards(value) {
@@ -275,6 +286,7 @@ export function emptyLine() {
     recTd: 0,
     rushYds: 0,
     recYds: 0,
+    passYds: 0,
     conv1: 0,
     conv2: 0,
     safety: 0,
@@ -286,12 +298,20 @@ export function emptyLine() {
   };
 }
 
-export function applyEvent(line, event) {
-  const field = EVENT_FIELD[event?.type];
+export function applyEvent(line, event, role = "player") {
+  if (!line || !event) return;
+  if (role === "passer") {
+    if (event.convMode === "pass" && isConversion(event.type)) line.passYds += conversionYards(event.type);
+    return;
+  }
+  const field = EVENT_FIELD[event.type];
   if (!field) return;
   line[field] += 1;
   const yardsKey = YARD_FIELD[event.type];
   if (yardsKey) line[yardsKey] += Number(event.yards) || 0;
+  if ((event.type === "comp" || event.type === "pass_td") && event.yards) line.passYds += Number(event.yards) || 0;
+  if (isConversion(event.type) && event.convMode === "run") line.rushYds += conversionYards(event.type);
+  if (isConversion(event.type) && event.convMode === "pass") line.recYds += conversionYards(event.type);
 }
 
 export function derive(line) {
@@ -397,15 +417,42 @@ export function resetClock(game) {
   return game;
 }
 
+function conversionName(type) {
+  return type === "conv2" ? "2-Pt Conv" : "1-Pt Conv";
+}
+
 export function eventLabel(event) {
+  if (isConversion(event?.type) && event.convMode === "pass") {
+    const yds = conversionYards(event.type);
+    return `${conversionName(event.type)} (+${yds} rec yds) from ${event.passerName || "Passer"} (+${yds} pass yds)`;
+  }
+  if (isConversion(event?.type) && event.convMode === "run") {
+    const yds = conversionYards(event.type);
+    return `${conversionName(event.type)} run (+${yds} rush yds)`;
+  }
   if (needsYards(event?.type)) return `${SHORT_STAT[event.type]} ${formatYards(event.yards)}`;
   return STAT_BUTTONS.find((button) => button.type === event?.type)?.aria || "Event";
 }
 
 export function playLine(event, team) {
   const who = eventWho(event, team);
+  if (isConversion(event?.type) && event.convMode === "pass") {
+    const yds = conversionYards(event.type);
+    return `${who} ${conversionName(event.type)} (+${yds} rec yds) from ${passerWho(event, team)} (+${yds} pass yds)`;
+  }
+  if (isConversion(event?.type) && event.convMode === "run") {
+    const yds = conversionYards(event.type);
+    return `${who} ${conversionName(event.type)} run (+${yds} rush yds)`;
+  }
   if (needsYards(event?.type)) return `${who} ${SHORT_STAT[event.type]} ${formatYards(event.yards)}`;
   return `${who} ${eventLabel(event)}`;
+}
+
+export function passerWho(event, team) {
+  if (!event?.passerId) return event?.passerName || "Passer";
+  const player = team?.players?.find((item) => item.id === event.passerId);
+  if (player) return playerName(player);
+  return event.passerName || "Passer";
 }
 
 export function eventWho(event, team) {
@@ -451,14 +498,7 @@ export function boxScore(game, team) {
       ...emptyLine(),
     });
   }
-  for (const event of game.events || []) {
-    if (!event.playerId || isOpponentEvent(event.type)) continue;
-    if (!rows.has(event.playerId)) {
-      const meta = rosterMeta(team, event.playerId, event);
-      rows.set(event.playerId, { ...meta, ...emptyLine() });
-    }
-    applyEvent(rows.get(event.playerId), event);
-  }
+  for (const event of game.events || []) creditEvent(rows, team, event);
   const players = [...rows.values()].map((row) => ({ ...row, ...derive(row) }));
   return { players, totals: sumLines(players), score: scoreGame(game.events, game.half) };
 }
@@ -497,15 +537,7 @@ export function seasonForTeam(data, team) {
     else if (score.total.us < score.total.them) record.l += 1;
     else record.t += 1;
     const seen = new Set();
-    for (const event of game.events) {
-      if (!event.playerId || isOpponentEvent(event.type)) continue;
-      if (!rows.has(event.playerId)) {
-        const meta = rosterMeta(team, event.playerId, event);
-        rows.set(event.playerId, { ...meta, gp: 0, ...emptyLine() });
-      }
-      applyEvent(rows.get(event.playerId), event);
-      seen.add(event.playerId);
-    }
+    for (const event of game.events) creditEvent(rows, team, event, seen);
     for (const id of seen) rows.get(id).gp += 1;
   }
   const players = [...rows.values()].map((row) => ({ ...row, ...derive(row), gp: row.gp }));
@@ -528,6 +560,7 @@ export function leaderboard(players) {
     { key: "recYds", label: "Receiving yards", min: (p) => p.recYds !== 0, format: (p) => formatCount(p.recYds) },
     { key: "rushTd", label: "Rushing TDs", min: (p) => p.rushTd > 0, format: (p) => formatCount(p.rushTd) },
     { key: "recTd", label: "Receiving TDs", min: (p) => p.recTd > 0, format: (p) => formatCount(p.recTd) },
+    { key: "passYds", label: "Passing yards", min: (p) => p.passYds !== 0, format: (p) => formatCount(p.passYds) },
     { key: "passTd", label: "Passing TDs", min: (p) => p.passTd > 0, format: (p) => formatCount(p.passTd) },
     { key: "defTd", label: "Defensive TDs", min: (p) => p.defTd > 0, format: (p) => formatCount(p.defTd) },
     { key: "rec", label: "Receptions", min: (p) => p.rec > 0, format: (p) => formatCount(p.rec) },
@@ -694,12 +727,12 @@ export function deleteGame(data, gameId) {
   if (data.boxGameId === gameId) data.boxGameId = null;
 }
 
-export function addEvent(game, { type, player, half, yards }) {
+export function addEvent(game, { type, player, half, yards, convMode, passer }) {
   if (!EVENT_SET.has(type)) return null;
   const opponent = isOpponentEvent(type);
   if (!opponent && !player?.id) return null;
-  const cleanYards = needsYards(type) ? sanitizeYards(yards) : null;
-  if (needsYards(type) && cleanYards == null) return null;
+  const tracked = conversionFields(type, player, convMode, passer, yards);
+  if (tracked.error) return null;
   const event = {
     id: uid("e"),
     type,
@@ -707,11 +740,40 @@ export function addEvent(game, { type, player, half, yards }) {
     playerName: opponent ? "" : playerName(player),
     playerNumber: opponent ? "" : normNumber(player.number),
     half: HALF_IDS.includes(half) ? half : (HALF_IDS.includes(game.half) ? game.half : "H1"),
-    yards: cleanYards,
+    yards: tracked.yards,
+    convMode: tracked.convMode,
+    passerId: tracked.passerId,
+    passerName: tracked.passerName,
+    passerNumber: tracked.passerNumber,
     ts: Date.now(),
   };
   game.events.push(event);
   return event;
+}
+
+function conversionFields(type, player, convMode, passer, yards) {
+  const empty = { yards: null, convMode: null, passerId: null, passerName: "", passerNumber: "" };
+  if (needsYards(type)) {
+    const clean = sanitizeYards(yards);
+    if (clean == null) return { error: true };
+    return { ...empty, yards: clean };
+  }
+  if (type === "comp" || type === "pass_td") {
+    if (yards == null || yards === "") return empty;
+    const clean = sanitizeYards(yards);
+    if (clean == null) return { error: true };
+    return { ...empty, yards: clean };
+  }
+  if (!isConversion(type) || (convMode !== "run" && convMode !== "pass")) return empty;
+  if (convMode === "run") return { ...empty, convMode: "run", yards: conversionYards(type) };
+  if (!passer?.id || passer.id === player?.id) return { error: true };
+  return {
+    yards: conversionYards(type),
+    convMode: "pass",
+    passerId: passer.id,
+    passerName: playerName(passer),
+    passerNumber: normNumber(passer.number),
+  };
 }
 
 export function undoLast(game) {
@@ -730,28 +792,78 @@ export function updateEvent(game, team, eventId, patch) {
   if (!event) return { error: "That event is gone." };
   const nextType = patch.type && EVENT_SET.has(patch.type) ? patch.type : event.type;
   const nextHalf = patch.half && HALF_IDS.includes(patch.half) ? patch.half : event.half;
+  const player = isOpponentEvent(nextType)
+    ? null
+    : team.players.find((item) => item.id === patch.playerId) || team.players.find((item) => item.id === event.playerId);
+  if (!isOpponentEvent(nextType) && !player) return { error: "Pick a player for that stat." };
   let nextYards = null;
-  if (needsYards(nextType)) {
+  let convMode = null;
+  let passerId = null;
+  let passerName = "";
+  let passerNumber = "";
+  if (needsYards(nextType) || nextType === "comp" || nextType === "pass_td") {
     const raw = patch.yards != null ? patch.yards : event.yards;
-    nextYards = sanitizeYards(raw);
-    if (nextYards == null) return { error: "Use a whole number of yards from -99 to 99." };
+    if ((nextType === "comp" || nextType === "pass_td") && (raw == null || raw === "")) nextYards = null;
+    else {
+      nextYards = sanitizeYards(raw);
+      if (nextYards == null) return { error: "Use a whole number of yards from -99 to 99." };
+    }
+  } else if (isConversion(nextType)) {
+    const mode = patch.convMode !== undefined ? patch.convMode : event.convMode;
+    if (mode === "run") {
+      convMode = "run";
+      nextYards = conversionYards(nextType);
+    } else if (mode === "pass") {
+      const nextPasserId = patch.passerId !== undefined ? patch.passerId : event.passerId;
+      const passer = team.players.find((item) => item.id === nextPasserId);
+      if (!passer || passer.id === player.id) return { error: "Pick a different player as the passer, or mark it a run." };
+      convMode = "pass";
+      nextYards = conversionYards(nextType);
+      passerId = passer.id;
+      passerName = playerName(passer);
+      passerNumber = normNumber(passer.number);
+    }
   }
   event.type = nextType;
   event.half = nextHalf;
   event.yards = nextYards;
+  event.convMode = convMode;
+  event.passerId = passerId;
+  event.passerName = passerName;
+  event.passerNumber = passerNumber;
   if (isOpponentEvent(event.type)) {
     event.playerId = null;
     event.playerName = "";
     event.playerNumber = "";
-    event.yards = null;
     return { event };
   }
-  const player = team.players.find((item) => item.id === patch.playerId) || team.players.find((item) => item.id === event.playerId);
-  if (!player) return { error: "Pick a player for that stat." };
   event.playerId = player.id;
   event.playerName = playerName(player);
   event.playerNumber = normNumber(player.number);
   return { event };
+}
+
+function ensureStatRow(rows, team, playerId, snapshot) {
+  if (!playerId) return null;
+  if (!rows.has(playerId)) {
+    rows.set(playerId, { ...rosterMeta(team, playerId, snapshot), gp: 0, ...emptyLine() });
+  }
+  return rows.get(playerId);
+}
+
+function creditEvent(rows, team, event, seen) {
+  if (!event?.playerId || isOpponentEvent(event.type)) return;
+  const row = ensureStatRow(rows, team, event.playerId, event);
+  applyEvent(row, event);
+  if (seen) seen.add(event.playerId);
+  if (event.convMode === "pass" && event.passerId && event.passerId !== event.playerId) {
+    const passer = ensureStatRow(rows, team, event.passerId, {
+      playerName: event.passerName,
+      playerNumber: event.passerNumber,
+    });
+    applyEvent(passer, event, "passer");
+    if (seen) seen.add(event.passerId);
+  }
 }
 
 function seedPlayer(id, firstName) {
@@ -887,7 +999,25 @@ function normalizeEvent(event) {
   const opponent = isOpponentEvent(type);
   const playerId = opponent ? null : clip(event.playerId, 80) || null;
   if (!opponent && !playerId) return null;
-  const yards = needsYards(type) ? (sanitizeYards(event.yards) ?? 0) : null;
+  let yards = null;
+  let convMode = null;
+  let passerId = null;
+  let passerName = "";
+  let passerNumber = "";
+  if (needsYards(type)) yards = sanitizeYards(event.yards) ?? 0;
+  else if ((type === "comp" || type === "pass_td") && event.yards != null && event.yards !== "") yards = sanitizeYards(event.yards) ?? 0;
+  else if (isConversion(type) && event.convMode === "run") {
+    convMode = "run";
+    yards = conversionYards(type);
+  } else if (isConversion(type) && event.convMode === "pass") {
+    passerId = clip(event.passerId, 80) || null;
+    if (passerId && passerId !== playerId) {
+      convMode = "pass";
+      yards = conversionYards(type);
+      passerName = clip(event.passerName, 80);
+      passerNumber = normNumber(event.passerNumber);
+    }
+  }
   return {
     id,
     type,
@@ -896,6 +1026,10 @@ function normalizeEvent(event) {
     playerNumber: opponent ? "" : normNumber(event.playerNumber),
     half,
     yards,
+    convMode,
+    passerId,
+    passerName,
+    passerNumber,
     ts: Number.isFinite(Number(event.ts)) ? Number(event.ts) : Date.now(),
   };
 }

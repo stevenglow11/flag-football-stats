@@ -59,6 +59,8 @@ These add to the Brick Elite score:
 
 Rush, Rush TD, Rec, and Rec TD then ask for yards. Tap +5, +10, +15, +20, +30, or 0, or type a number such as 12 or -3. The play-by-play line shows it, for example `Keegan Rec +12 yds`. Undo removes the yards with the play. Games saved before yards existed count as 0.
 
+1-Pt and 2-Pt ask who threw it, or Run / No passer. A 1-point conversion is 5 yards and a 2-point conversion is 10 yards, for the scorer and for the passer. A pass gives the scorer receiving yards and the passer the same number of passing yards. A run gives the scorer rushing yards. The team score still goes up only 1 or 2. Completions and passing touchdowns stay one tap and do not ask for yards. Older conversions that were saved before this rule stay points only.
+
 Opponent buttons add only to their score: Opp TD **6**, Opp 1 **1**, Opp 2 **2**, Opp Safety **2**.
 
 Computed stats:

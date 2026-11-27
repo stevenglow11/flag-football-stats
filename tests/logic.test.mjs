@@ -367,6 +367,56 @@ test("catch and run yards total, undo, and survive a missing yards field", () =>
   assert.match(seasonCsv(loaded.teams[0], season), /RcYd/);
 });
 
+test("a conversion credits 5 or 10 yards once and undo removes the passer too", () => {
+  const data = defaultData();
+  const team = data.teams[0];
+  const { game } = createGame(data, team.id, { opponent: "Rivals", date: "2026-09-12", homeAway: "home", location: "" });
+  const keegan = player(data, "p_keegan");
+  const ethan = player(data, "p_ethan");
+  const cal = player(data, "p_cal");
+  addEvent(game, { type: "conv1", player: keegan, half: "H1" });
+  let box = boxScore(game, team);
+  assert.equal(box.score.total.us, 1);
+  assert.equal(box.players.find((row) => row.name === "Keegan").recYds, 0);
+  assert.equal(box.totals.passYds, 0);
+  addEvent(game, { type: "conv1", player: keegan, half: "H1", convMode: "pass", passer: ethan });
+  box = boxScore(game, team);
+  assert.equal(box.score.total.us, 2);
+  const scorer = box.players.find((row) => row.name === "Keegan");
+  const passer = box.players.find((row) => row.name === "Ethan");
+  assert.equal(scorer.conv1, 2);
+  assert.equal(scorer.recYds, 5);
+  assert.equal(scorer.pts, 2);
+  assert.equal(passer.passYds, 5);
+  assert.equal(passer.comp, 0);
+  assert.equal(passer.pts, 0);
+  assert.equal(playLine(game.events.at(-1), team), "Keegan 1-Pt Conv (+5 rec yds) from Ethan (+5 pass yds)");
+  addEvent(game, { type: "conv2", player: cal, half: "H2", convMode: "run" });
+  box = boxScore(game, team);
+  assert.equal(box.score.total.us, 4);
+  assert.equal(box.players.find((row) => row.name === "Cal").rushYds, 10);
+  assert.equal(box.players.find((row) => row.name === "Cal").pts, 2);
+  assert.equal(playLine(game.events.at(-1), team), "Cal 2-Pt Conv run (+10 rush yds)");
+  assert.equal(undoLast(game).convMode, "run");
+  box = boxScore(game, team);
+  assert.equal(box.score.total.us, 2);
+  assert.equal(box.players.find((row) => row.name === "Cal").rushYds, 0);
+  assert.equal(box.players.find((row) => row.name === "Cal").conv2, 0);
+  assert.equal(box.totals.passYds, 5);
+  assert.equal(addEvent(game, { type: "conv2", player: keegan, half: "H1", convMode: "pass", passer: keegan }), null);
+  const loaded = normalizeData(JSON.parse(JSON.stringify(data)));
+  assert.equal(loaded.games[0].events[0].convMode, null);
+  assert.equal(loaded.games[0].events[0].yards, null);
+  const kept = boxScore(loaded.games[0], loaded.teams[0]);
+  assert.equal(kept.score.total.us, 2);
+  assert.equal(kept.players.find((row) => row.name === "Ethan").passYds, 5);
+  const season = seasonForTeam(loaded, loaded.teams[0]);
+  assert.equal(season.players.find((row) => row.name === "Ethan").gp, 1);
+  const passing = leaderboard(season.players).find((board) => board.label === "Passing yards");
+  assert.equal(passing.rows[0].name, "Ethan");
+  assert.equal(passing.rows[0].value, "5");
+});
+
 test("the sideline clock pauses without jumping ahead of the saved elapsed time", () => {
   const game = { clockMs: 0, clockStartedAt: null };
   toggleClock(game, 1_000);

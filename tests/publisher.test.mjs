@@ -38,8 +38,11 @@ function addTeamSafe(data) {
   return data.teams[1];
 }
 
-test("the repo does not ship a submit URL or a passcode", () => {
-  assert.equal(RESULTS_CONFIG.submitUrl, "");
+test("the repo ships the deployed submit URL and no passcode", () => {
+  assert.equal(
+    RESULTS_CONFIG.submitUrl,
+    "https://script.google.com/macros/s/AKfycbwWdENeUHFtJWUikVnmbxX9EMZqcyMEt8akCd9GzKfXPcGarKdFHpSpTNUiZ_2lUubRYw/exec",
+  );
   assert.equal(RESULTS_CONFIG.resultsUrl, "./results.json");
   const config = readFileSync(new URL("../js/results-config.js", import.meta.url), "utf8");
   assert.doesNotMatch(config, /PASSCODE\s*=\s*["']/);

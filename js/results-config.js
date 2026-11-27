@@ -1,15 +1,15 @@
 // Publishing hook shared by the public page and the Submit button.
 //
-// Leave submitUrl empty until the Apps Script web app is deployed, then paste
-// the /exec URL here. Submit POSTs the public JSON there (Content-Type
-// text/plain) and results.html loads the same address with GET.
+// submitUrl is set to the deployed Apps Script web app. Submit POSTs the
+// public JSON there (Content-Type text/plain) and results.html loads the
+// same address with GET.
 //
 // Do not put the passcode, a token, or a Google password in this file.
 // The passcode lives on the phone and in the Sheet's script properties.
 
 export const RESULTS_CONFIG = {
   resultsUrl: "./results.json",
-  submitUrl: "",
+  submitUrl: "https://script.google.com/macros/s/AKfycbwWdENeUHFtJWUikVnmbxX9EMZqcyMEt8akCd9GzKfXPcGarKdFHpSpTNUiZ_2lUubRYw/exec",
 };
 
 function isHttpUrl(value) {
